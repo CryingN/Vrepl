@@ -80,3 +80,12 @@ warning: `++` operator can only be used as a statement
 2
 ```
 
+### Import Errors
+
+The native Vrepl cannot import programs that specify function names. For example:
+
+```v
+>>> import os { input }
+>>> input('>')
+error: unknown function: input
+```

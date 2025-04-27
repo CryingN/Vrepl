@@ -1,6 +1,6 @@
-// Copyright (c) 2025 CryingN, Alexander Medvednikov. All rights reserved.
-// Use of this source code is governed by an MIT license
-// that can be found in the LICENSE file.
+// 版权所有 (c) 2025 CryingN, Alexander Medvednikov。保留所有权利。
+// 本源码的使用受 MIT 许可证约束
+// 许可证可在 LICENSE 文件中找到
 module main
 
 import os
@@ -13,30 +13,30 @@ import v.util.version
 struct Repl {
 mut:
 	readline     readline.Readline
-	indent       int    // indentation level
-	in_func      bool   // inside function decl
-	in_struct    bool   // inside struct decl
-	in_enum      bool   // inside enum decl
-	in_interface bool   // inside interface decl
-	line         string // the current line entered by the user
-	is_pin       bool   // does the repl 'pin' entered source code
-	folder       string // the folder in which the repl will write its temporary source files
-	last_output  string // the last repl output
+	indent       int    // 缩进级别
+	in_func      bool   // 是否在函数声明中
+	in_struct    bool   // 是否在结构体声明中
+	in_enum      bool   // 是否在枚举声明中
+	in_interface bool   // 是否在接口声明中
+	line         string // 用户输入的当前行
+	is_pin       bool   // 是否将输入的源代码"固定"
+	folder       string // REPL写入临时源文件的文件夹
+	last_output  string // 最后一次REPL输出
 
-	modules         []string          // all the import modules
-	alias           map[string]string // all the alias used in the import
-	includes        []string          // all the #include statements
-	functions       []string          // all the user function declarations
-	functions_name  []string          // all the user function names
-	structs         []string          // all the struct definitions
-	enums           []string          // all the enum definitions
-	consts          []string          // all the const definitions
-	types           []string          // all the type definitions
-	interfaces      []string          // all the interface definitions
-	lines           []string          // all the other lines/statements
-	temp_lines      []string          // all the temporary expressions/printlns
-	vstartup_lines  []string          // lines in the `VSTARTUP` file
-	eval_func_lines []string          // same line of the `VSTARTUP` file, but used to test fn type
+	modules         map[string][]string		// 所有导入的模块
+	alias           map[string]string		// 导入语句中使用的所有别名
+	includes        []string          		// 所有的#include语句
+	functions       []string          		// 所有用户函数声明
+	functions_name  []string          		// 所有用户函数名称
+	structs         []string          		// 所有的结构体定义
+	enums           []string          		// 所有的枚举定义
+	consts          []string          		// 所有的常量定义
+	types           []string          		// 所有的类型定义
+	interfaces      []string          		// 所有的接口定义
+	lines           []string          		// 其他所有行/语句
+	temp_lines      []string          		// 所有的临时表达式/println语句
+	vstartup_lines  []string         		// VSTARTUP文件中的行
+	eval_func_lines []string          		// 与VSTARTUP文件相同的行，但用于测试函数类型
 }
 
 const is_stdin_a_pipe = os.is_atty(0) == 0
@@ -91,13 +91,14 @@ fn new_repl(folder string) Repl {
 			skip_empty: true
 		}
 		folder:         folder
-		modules:        ['os', 'time', 'math']
+		modules:        {}
 		vstartup_lines: vstartup_source
 		// Test file used to check if a function as a void return or a value return.
 		eval_func_lines: vstartup_source
 	}
 }
 
+// 检查行尾是否有换行符，如果没有则添加
 fn endline_if_missed(line string) string {
 	if line.ends_with('\n') {
 		return line
@@ -105,6 +106,7 @@ fn endline_if_missed(line string) string {
 	return line + '\n'
 }
 
+// 检查行是否以指定类型声明开头
 fn starts_with_type_decl(line string, type_name string) bool {
 	if line.starts_with(type_name + ' ') || line.starts_with(type_name + '\t') {
 		return true
@@ -118,6 +120,7 @@ fn starts_with_type_decl(line string, type_name string) bool {
 	return false
 }
 
+// 显示REPL帮助信息
 fn repl_help() {
 	println(version.full_v_version(false))
 	println('
@@ -128,10 +131,11 @@ fn repl_help() {
 	|clear                  Clears the screen.
 	|pin                    Pins the entered program to the top.
 	|!sh [COMMAND]          Execute on REPL shell commands.
-	|          Execute on REPL shell commands.
+	|!file [FILENAME]       Save the program to a file named filename and format the code.
 '.strip_margin())
 }
 
+// 执行shell命令
 fn run_shell(command string) {
 	if command.len >= 2 && command[0..2] == 'cd' {
 		command_splited := command.split(' ')
@@ -144,6 +148,7 @@ fn run_shell(command string) {
 	}
 }
 
+// 检查并处理代码块中的大括号，更新缩进状态
 fn (mut r Repl) checks() bool {
 	mut in_string := false
 	was_indent := r.indent > 0
@@ -171,6 +176,7 @@ fn (mut r Repl) checks() bool {
 	return (was_indent && r.indent <= 0) || r.indent > 0
 }
 
+// 判断行是否为函数调用，并返回函数类型
 fn (r &Repl) function_call(line string) (bool, FnType) {
 	for function in r.functions_name {
 		is_function_definition := line.replace(' ', '').starts_with('${function}:=')
@@ -197,25 +203,33 @@ fn (r &Repl) function_call(line string) (bool, FnType) {
 }
 
 // TODO(vincenzopalazzo) Remove this fancy check and add a regex
+// 判断行是否为函数调用(基于简单启发式规则)
 fn (r &Repl) is_function_call(line string) bool {
 	return !line.starts_with('[') && line.contains('.') && line.contains('(')
 		&& (line.ends_with(')') || line.ends_with('?') || line.ends_with('!'))
 }
 
-// Convert the list of modules that we parsed already,
-// to a sequence of V source code lines
+// 将已解析的模块列表转换为V源代码行序列
 fn (r &Repl) import_to_source_code() []string {
 	mut imports_line := []string{}
-	for mod in r.modules {
+	for mod, value in r.modules {
 		mut import_str := 'import ${mod}'
 		if mod in r.alias {
 			import_str += ' as ${r.alias[mod]}'
+		}
+		if value.len > 0 {
+			import_str += '{ '
+			for val in value {
+				import_str += '${val}, '
+			}
+			import_str += '}'
 		}
 		imports_line << endline_if_missed(import_str)
 	}
 	return imports_line
 }
 
+// 生成当前源代码，可选择是否包含临时行和print语句
 fn (r &Repl) current_source_code(should_add_temp_lines bool, not_add_print bool) string {
 	mut all_lines := r.import_to_source_code()
 
@@ -243,6 +257,7 @@ fn (r &Repl) current_source_code(should_add_temp_lines bool, not_add_print bool)
 	return all_lines.join('\n')
 }
 
+// 将源代码插入到指定类型的声明位置
 fn (r &Repl) insert_source_code(typ DeclType, lines []string) string {
 	mut all_lines := r.import_to_source_code()
 
@@ -284,9 +299,8 @@ fn (r &Repl) insert_source_code(typ DeclType, lines []string) string {
 	return all_lines.join('\n')
 }
 
-// the new_line is probably a function call, but some function calls
-// do not return anything, while others return results.
-// This function checks which one we have:
+// new_line可能是一个函数调用，但有些函数调用不返回任何内容，
+// 而有些则返回结果。此函数检查我们拥有哪种情况：
 fn (r &Repl) check_fn_type_kind(new_line string) FnType {
 	source_code := r.current_source_code(true, false) + '\nprintln(${new_line})'
 	check_file := os.join_path(r.folder, '${rand.ulid()}.vrepl.check.v')
@@ -304,7 +318,7 @@ fn (r &Repl) check_fn_type_kind(new_line string) FnType {
 	return FnType.fn_type
 }
 
-// parse the import statement in `line`, updating the Repl alias maps
+// 解析`line`中的import语句，更新Repl的别名映射
 fn (mut r Repl) parse_import(line string) {
 	if !line.contains('import') {
 		eprintln("the line doesn't contain an `import` keyword")
@@ -313,39 +327,50 @@ fn (mut r Repl) parse_import(line string) {
 	tokens := r.line.fields()
 	// module name
 	mod := tokens[1]
-	if mod !in r.modules {
-		r.modules << mod
-	}
-	// Check if the import contains an alias
-	// import mod_name as alias_mod
+	// set alias
 	if line.contains('as ') && tokens.len >= 4 {
 		alias := tokens[3]
 		if mod !in r.alias {
 			r.alias[mod] = alias
 		}
 	}
+
+	// set value
+	if line.contains('{') && line.contains('}') {
+		values := line.split('{')[1].split('}')[0]
+		for value in values.split(',') {
+			r.modules[mod] << value
+		}
+	} else {
+		if mod !in r.modules {
+			r.modules[mod] = []string{}
+		}
+	}
 }
 
-// clear the screen, then list source code
+// 清屏后列出源代码
 fn (mut r Repl) pin() {
 	term.erase_clear()
 	r.list_source()
 }
 
-// print source code
+// 打印源代码
 fn (mut r Repl) list_source() {
 	source_code := r.current_source_code(true, true)
 	println('\n${source_code.replace('\n\n', '\n')}')
 }
 
+// 高亮控制台命令显示
 fn highlight_console_command(command string) string {
 	return term.bright_white(term.bright_bg_black(' ${command} '))
 }
 
+// 高亮REPL命令显示
 fn highlight_repl_command(command string) string {
 	return term.bright_white(term.bg_blue(' ${command} '))
 }
 
+// 打印欢迎屏幕(根据终端宽度自适应布局)
 fn print_welcome_screen() {
 	if vquiet {
 		return
@@ -392,6 +417,7 @@ fn print_welcome_screen() {
 	}
 }
 
+// 运行REPL主循环
 fn run_repl(workdir string, vrepl_prefix string) int {
 	if !is_stdin_a_pipe {
 		print_welcome_screen()
@@ -442,6 +468,14 @@ fn run_repl(workdir string, vrepl_prefix string) int {
 
 		if r.line.len > 4 && r.line[0..3] == '!sh' {
 			run_shell(r.line[4..r.line.len])
+			continue
+		}
+
+
+		if r.line.len > 6 && r.line[0..5] == '!file' {
+			//这里可以输出代码, 但是要怎么把代码写文件成文件呢?
+			r.list_source()
+			println('文件名: ${r.line[6..r.line.len]}')
 			continue
 		}
 
@@ -547,11 +581,11 @@ fn run_repl(workdir string, vrepl_prefix string) int {
 					}
 				}
 			}
-			// Note: starting a line with 2 spaces escapes the println heuristic
+			// 注意：以2个空格开头的行会绕过println启发式处理
 			if oline.starts_with('  ') {
 				is_statement = true
 			}
-			// The parentheses do not match
+			// 括号不匹配
 			if r.line.count('(') != r.line.count(')') {
 				is_statement = true
 			}
@@ -670,10 +704,13 @@ fn run_repl(workdir string, vrepl_prefix string) int {
 				print_output(cur_line_output)
 			}
 		}
+		//todo: 当开括号存在时这里有很多不安定的结果，需要重新调整逻辑
+		//println(r.modules)
 	}
 	return 0
 }
 
+// 转换输出结果，隐藏临时文件名
 fn convert_output(os_result string) string {
 	lines := os_result.trim_right('\n\r').split_into_lines()
 	mut content := ''
@@ -693,15 +730,15 @@ fn convert_output(os_result string) string {
 	return content
 }
 
+// 打印输出结果
 fn print_output(os_result string) {
 	content := convert_output(os_result)
 	print(content)
 }
 
 fn main() {
-	// Support for the parameters replfolder and replprefix is needed
-	// so that the repl can be launched in parallel by several different
-	// threads by the REPL test runner.
+	// 需要支持参数replfolder和replprefix，
+	// 以便REPL测试运行器可以通过多个不同线程并行启动REPL
 	args := cmdline.options_after(os.args, ['repl'])
 	replfolder := os.real_path(cmdline.option(args, '-replfolder', repl_folder))
 	replprefix := cmdline.option(args, '-replprefix', 'noprefix.${rand.ulid()}.')
@@ -717,11 +754,13 @@ fn main() {
 	exit(run_repl(replfolder, replprefix))
 }
 
+// 打印REPL错误信息
 fn rerror(s string) {
 	println('V repl error: ${s}')
 	os.flush()
 }
 
+// 获取用户输入的一行内容
 fn (mut r Repl) get_one_line(prompt string) ?string {
 	if is_stdin_a_pipe {
 		iline := os.get_raw_line()
@@ -734,6 +773,7 @@ fn (mut r Repl) get_one_line(prompt string) ?string {
 	return rline
 }
 
+// 清理临时文件
 fn cleanup_files(file string) {
 	os.rm(file) or {}
 	$if windows {
@@ -747,6 +787,7 @@ fn cleanup_files(file string) {
 	}
 }
 
+// 运行V文件并返回结果
 fn repl_run_vfile(file string) !os.Result {
 	$if trace_repl_temp_files ? {
 		eprintln('>> repl_run_vfile file: ${file}')
